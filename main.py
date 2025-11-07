@@ -5,6 +5,7 @@ import urllib
 import urllib.parse
 import requests
 import pytz
+import asyncio
 from datetime import datetime
 from spellchecker import SpellChecker
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -96,18 +97,26 @@ async def pnc_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(f"Custom response set to: {custom_response}")
 
-# /help command: Show help message
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# --- Web search command --- #
+async def web_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /web command: /web <search term>"""
+    if not context.args:
+        await update.message.reply_text("🔎 Usage: /web <search term>\nExample: /web web development")
+        return
+
+    query = " ".join(context.args)
+    url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    await asyncio.sleep(1)
+
     await update.message.reply_text(
-        "Commands:\n"
-        "/start - Greet the user\n"
-        "/help - Show help\n"
-        "/weather - Get weather data\n"
-        "/setresponse <response> - Set custom response\n"
-        "/datetime - Get the current date and time in Cambodia\n"
-        "/youtube <search term> - Search YouTube for videos\n"
-        "/pnc_info <search term> - Get information about PNC\n"
+        f"🔍 Google search for <b>{html.escape(query)}</b>:\n{url}",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
     )
+
 
 # ---------------- YOUTUBE SEARCH ----------------
 async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -122,6 +131,19 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await update.message.reply_text(result, parse_mode="Markdown", disable_web_page_preview=True)
 
+# /help command: Show help message
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Commands:\n"
+        "/start - Greet the user\n"
+        "/help - Show help\n"
+        "/weather - Get weather data\n"
+        "/setresponse <response> - Set custom response\n"
+        "/datetime - Get the current date and time in Cambodia\n"
+        "/youtube <search term> - Search YouTube for videos\n"
+        "/pnc_info <search term> - Get information about PNC\n"
+        "/web <search term> - Get information about PNC\n"
+    )
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text.strip().lower()
     chat_id = update.effective_chat.id
@@ -300,6 +322,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text("🎬 Please type `/youtube <search term>` to search YouTube.")
     elif query.data == "pnc_info":
         await query.edit_message_text("🎬 Please type `/pnc_info <search term>` to get information about PNC.")
+    elif query.data == "web":
+        await query.edit_message_text("🎬 Please type `/web <search term>` to search the web.")
     else:
         await query.edit_message_text("Unknown option selected.")
 
@@ -315,8 +339,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ],
         [
             InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube_search"),
-            InlineKeyboardButton("PNC Info", callback_data="pnc_info"),
+            InlineKeyboardButton("🔍 Web Search", callback_data="web"),
         ],
+        [
+            InlineKeyboardButton("PNC Info", callback_data="pnc_info"),
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -338,6 +365,7 @@ def main():
     application.add_handler(CommandHandler("datetime", datetime_command))
     application.add_handler(CommandHandler("youtube", youtube_command))
     application.add_handler(CommandHandler("pnc_info", pnc_info))
+    application.add_handler(CommandHandler("web", web_search))
 
     # Inline buttons and messages
     application.add_handler(CallbackQueryHandler(button_handler))
