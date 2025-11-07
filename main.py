@@ -3,7 +3,7 @@ import json
 import html
 import urllib
 import urllib.parse
-import requests
+import aiohttp
 import pytz
 import asyncio
 from datetime import datetime
@@ -27,11 +27,9 @@ spell = SpellChecker()
 
 # File for storing user preferences
 PREFS_FILE = 'user_prefs.json'
+
 # API Keys
-WEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "7b27f746510dc8598cb744aa79f927e4")
-
-
-# ---------------- UTILITIES ----------------
+WEATHER_API_KEY = '7f59948b973042e8bfd22815241211'
 
 
 
@@ -59,27 +57,71 @@ def save_prefs(prefs):
 
 # /weather command: Fetch weather information for a city
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /weather command to get weather information for a city"""
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
     city = 'Phnom Penh'
     if context.args:
         city = ' '.join(context.args)
 
     url = f"https://api.weatherapi.com/v1/current.json?key={WEATHER_API_KEY}&q={city}"
-    response = requests.get(url)
-    data = response.json()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status != 200:
+                    await update.message.reply_text(
+                        "❌ Sorry, couldn't connect to weather service. Please try again later."
+                    )
+                    return
 
-    if 'error' not in data:
-        weather_data = f"Weather in {city}:\nTemperature: {data['current']['temp_c']}°C\nDescription: {data['current']['condition']['text']}"
-    else:
-        weather_data = "Sorry, I couldn't fetch the weather data."
+                data = await response.json()
+                
+                if 'error' in data:
+                    await update.message.reply_text(
+                        f"❌ Error: {data['error'].get('message', 'City not found')}"
+                    )
+                    return
 
-    await update.message.reply_text(weather_data)
+                city_name = html.escape(city)
+                weather = data['current']['condition']['text']
+                temp = data['current']['temp_c']
+                feels_like = data['current']['feelslike_c']
+                humidity = data['current']['humidity']
+
+                weather_data = (
+                    f"🌤️ Weather in <b>{city_name}</b>:\n"
+                    f"• Condition: {weather}\n"
+                    f"• Temperature: {temp}°C\n"
+                    f"• Feels Like: {feels_like}°C\n"
+                    f"• Humidity: {humidity}%"
+                )
+                
+                await update.message.reply_text(
+                    weather_data,
+                    parse_mode="HTML"
+                )
+
+    except asyncio.TimeoutError:
+        await update.message.reply_text(
+            "❌ Request timed out. Please try again later."
+        )
+    except aiohttp.ClientError:
+        await update.message.reply_text(
+            "❌ Network error. Please check your internet connection and try again."
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ An unexpected error occurred: {str(e)}"
+        )
 
 # /datetime command: Get the current date and time in Cambodia
 async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cambodia_timezone = pytz.timezone("Asia/Phnom_Penh")
     current_time = datetime.now(cambodia_timezone)
     formatted_time = current_time.strftime("%B %d, %Y at %I:%M %p")
-    await update.message.reply_text(f"Current date and time in Cambodia: {formatted_time}")
+    await update.message.reply_text(f"Time Right now in Cambodia: {formatted_time}")
 
 
 
@@ -138,7 +180,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/start - Greet the user\n"
         "/help - Show help\n"
         "/weather - Get weather data\n"
-        "/setresponse <response> - Set custom response\n"
         "/datetime - Get the current date and time in Cambodia\n"
         "/youtube <search term> - Search YouTube for videos\n"
         "/pnc_info <search term> - Get information about PNC\n"
