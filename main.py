@@ -13,8 +13,6 @@ from googleapiclient.discovery import build
 from spellchecker import SpellChecker
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
-import urllib.parse
-import html
 # Bot Token
 TOKEN = '7631080660:AAFVpkGCLFhHkxF31Dvuwp0zdKjd4HV8FnY'
 
@@ -306,8 +304,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Please choose an option below to get started:",
         reply_markup=reply_markup
     )
-
-
 
 def main():
 
