@@ -1,5 +1,7 @@
+from pydoc import html
 from tracemalloc import start
 from email.mime import application
+from turtle import update
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CallbackContext
 import requests
@@ -9,6 +11,10 @@ from datetime import datetime
 import pytz
 from googleapiclient.discovery import build
 from spellchecker import SpellChecker
+from telegram.constants import ChatAction
+from telegram.ext import ContextTypes
+import urllib.parse
+import html
 # Bot Token
 TOKEN = '7631080660:AAFVpkGCLFhHkxF31Dvuwp0zdKjd4HV8FnY'
 
@@ -17,13 +23,23 @@ spell = SpellChecker()
 
 # File for storing user preferences
 PREFS_FILE = 'user_prefs.json'
-
 # API Keys
-YOUTUBE_API_KEY = 'AIzaSyDQSRsLtPIru--EJIg9MtX2eMjOxuvuddM'
-WEATHER_API_KEY = '7f59948b973042e8bfd22815241211'
+WEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "7b27f746510dc8598cb744aa79f927e4")
+
+
+# ---------------- UTILITIES ----------------
+
 
 
 # --- Helper Functions --- #
+
+def no_results_found(query: str) -> str:
+    """
+    Return a message when the bot cannot find a matching result.
+    Escapes the query to prevent HTML issues.
+    """
+    return f" No results found for '{html.escape(query)}'."
+
 
 def load_prefs():
     """Load user preferences from the file."""
@@ -58,25 +74,10 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cambodia_timezone = pytz.timezone("Asia/Phnom_Penh")
     current_time = datetime.now(cambodia_timezone)
-    formatted_time = current_time.strftime("%A, %Y-%m-%d %H:%M:%S")
+    formatted_time = current_time.strftime("%B %d, %Y at %I:%M %p")
     await update.message.reply_text(f"Current date and time in Cambodia: {formatted_time}")
 
-# /youtube command: Search YouTube videos
-async def youtube_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = ' '.join(context.args)
-    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-    
-    request = youtube.search().list(part="snippet", q=query, type="video", maxResults=3)
-    response = request.execute()
 
-    message = ""
-    for item in response['items']:
-        title = item['snippet']['title']
-        video_id = item['id']['videoId']
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        message += f"{title}\n{url}\n\n"
-
-    await update.message.reply_text(message if message else "No results found.")
 
 
 async def set_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -106,6 +107,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text.strip().lower()
+    chat_id = update.effective_chat.id
+
+    # 🕒 Show typing action
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    # Prepare response
+    response = None
 
     if "what is pnc" in user_text or "pnc name" in user_text:
         response = (
@@ -255,7 +263,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "The organization continues to grow and empower more Cambodian youth through digital education."
         )
     else:
-        response = "I didn't quite get that. Could you please clarify?"
+        # Use the helper function for unknown queries
+        response = no_results_found(user_text)
 
     await update.message.reply_text(response)
 # --- Inline Button Handlers --- #
@@ -273,21 +282,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # --- Start Command --- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Greet the user with buttons and intro."""
+    chat_id = update.effective_chat.id  # get chat ID safely
+
+    # Show "typing..." action
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    # Define keyboard buttons
     keyboard = [
         [
             InlineKeyboardButton("🌤 Weather", callback_data='weather'),
-            InlineKeyboardButton("📺 YouTube", callback_data='youtube'),
+            InlineKeyboardButton("🕒 Date & Time", callback_data='datetime'),
         ],
         [
-            InlineKeyboardButton("🕒 Date & Time", callback_data='datetime')
+            InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube_search"),
         ]
     ]
+
     reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send greeting message
     await update.message.reply_text(
         "👋 Hello! I'm your learning assistant bot.\n\n"
-        "You can ask me programming questions or use the buttons below to explore features:",
+        "Please choose an option below to get started:",
         reply_markup=reply_markup
     )
+
 
 
 def main():
