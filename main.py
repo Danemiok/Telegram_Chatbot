@@ -1,18 +1,23 @@
-from pydoc import html
-from tracemalloc import start
-from email.mime import application
-from turtle import update
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CallbackContext
-import requests
-import json
 import os
-from datetime import datetime
+import json
+import html
+import urllib
+import urllib.parse
+import requests
 import pytz
-from googleapiclient.discovery import build
+from datetime import datetime
 from spellchecker import SpellChecker
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 from telegram.constants import ChatAction
-from telegram.ext import ContextTypes
+
 # Bot Token
 TOKEN = '7631080660:AAFVpkGCLFhHkxF31Dvuwp0zdKjd4HV8FnY'
 
@@ -78,7 +83,7 @@ async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 
-async def set_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def pnc_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
     custom_response = ' '.join(context.args)
     prefs = load_prefs()
@@ -101,7 +106,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/setresponse <response> - Set custom response\n"
         "/datetime - Get the current date and time in Cambodia\n"
         "/youtube <search term> - Search YouTube for videos\n"
+        "/pnc_info <search term> - Get information about PNC\n"
     )
+
+# ---------------- YOUTUBE SEARCH ----------------
+async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /youtube command."""
+    if not context.args:
+        await update.message.reply_text("🎬 Please provide a search keyword.\nExample: `/youtube web development`", parse_mode="Markdown")
+        return
+
+    query = " ".join(context.args)
+    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+    result = f"🎥 *YouTube Search Results for:* _{html.escape(query)}_\n\n🔗 [Click here to view results]({search_url})"
+
+    await update.message.reply_text(result, parse_mode="Markdown", disable_web_page_preview=True)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text.strip().lower()
@@ -265,60 +284,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = no_results_found(user_text)
 
     await update.message.reply_text(response)
-# --- Inline Button Handlers --- #
-
+# ---------------- INLINE BUTTONS ----------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    chat_id = query.message.chat_id
+
+    # 🕒 Show typing action
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
     await query.answer()
-    action = {
-        'weather': "Please type /weather <city> to get the weather.",
-        'youtube': "Please type /youtube <search term> to search YouTube.",
-        'datetime': "Please type /datetime to get the current date and time in Cambodia."
-    }.get(query.data, "Unknown option selected.") 
-    await query.edit_message_text(action)
+    if query.data == "weather":
+        await query.edit_message_text("🌤 Please type `/weather <city>` to get the weather.")
+    elif query.data == "datetime":
+        await query.edit_message_text("🕒 Please type `/datetime` to get the current time in Cambodia.")
+    elif query.data == "youtube_search":
+        await query.edit_message_text("🎬 Please type `/youtube <search term>` to search YouTube.")
+    elif query.data == "pnc_info":
+        await query.edit_message_text("🎬 Please type `/pnc_info <search term>` to get information about PNC.")
+    else:
+        await query.edit_message_text("Unknown option selected.")
 
-# --- Start Command --- #
+# ---------------- START COMMAND ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Greet the user with buttons and intro."""
-    chat_id = update.effective_chat.id  # get chat ID safely
-
-    # Show "typing..." action
+    chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-    # Define keyboard buttons
     keyboard = [
         [
-            InlineKeyboardButton("🌤 Weather", callback_data='weather'),
-            InlineKeyboardButton("🕒 Date & Time", callback_data='datetime'),
+            InlineKeyboardButton("🌤 Weather", callback_data="weather"),
+            InlineKeyboardButton("🕒 Date & Time", callback_data="datetime"),
         ],
         [
             InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube_search"),
-        ]
+            InlineKeyboardButton("PNC Info", callback_data="pnc_info"),
+        ],
     ]
-
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Send greeting message
     await update.message.reply_text(
         "👋 Hello! I'm your learning assistant bot.\n\n"
         "Please choose an option below to get started:",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
     )
 
-def main():
 
-    """Main entry point for the bot."""
+
+def main():
     application = ApplicationBuilder().token(TOKEN).build()
 
-    # Add command handlers
+    # Commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("weather", weather))
     application.add_handler(CommandHandler("datetime", datetime_command))
-    application.add_handler(CommandHandler("setresponse", set_response))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("youtube", youtube_command))
+    application.add_handler(CommandHandler("pnc_info", pnc_info))
+
+    # Inline buttons and messages
     application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🤖 Bot is running...")
     application.run_polling()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
