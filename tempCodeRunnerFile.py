@@ -1,2 +1,1 @@
-
-        weather = data['current']['condition']['text']
+aiohttp

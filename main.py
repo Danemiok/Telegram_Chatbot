@@ -3,9 +3,10 @@ import json
 import html
 import urllib
 import urllib.parse
-import aiohttp
+import requests
 import pytz
 import asyncio
+import aiohttp
 from datetime import datetime
 from spellchecker import SpellChecker
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -27,9 +28,9 @@ spell = SpellChecker()
 
 # File for storing user preferences
 PREFS_FILE = 'user_prefs.json'
-
 # API Keys
 WEATHER_API_KEY = '7f59948b973042e8bfd22815241211'
+# ---------------- UTILITIES ----------------
 
 
 
@@ -55,7 +56,6 @@ def save_prefs(prefs):
     with open(PREFS_FILE, 'w') as file:
         json.dump(prefs, file)
 
-# /weather command: Fetch weather information for a city
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /weather command to get weather information for a city"""
     chat_id = update.effective_chat.id
@@ -107,21 +107,18 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "❌ Request timed out. Please try again later."
         )
-    except aiohttp.ClientError:
-        await update.message.reply_text(
-            "❌ Network error. Please check your internet connection and try again."
-        )
     except Exception as e:
         await update.message.reply_text(
             f"❌ An unexpected error occurred: {str(e)}"
         )
+
 
 # /datetime command: Get the current date and time in Cambodia
 async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cambodia_timezone = pytz.timezone("Asia/Phnom_Penh")
     current_time = datetime.now(cambodia_timezone)
     formatted_time = current_time.strftime("%B %d, %Y at %I:%M %p")
-    await update.message.reply_text(f"Time Right now in Cambodia: {formatted_time}")
+    await update.message.reply_text(f"Current date and time in Cambodia: {formatted_time}")
 
 
 
@@ -350,23 +347,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # ---------------- INLINE BUTTONS ----------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    chat_id = query.message.chat_id
+    chat_id = query.message.chat.id
 
-    # 🕒 Show typing action
+    await query.answer()  # Acknowledge the click
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-    await query.answer()
+
+    # Use send_message instead of edit_message_text to keep buttons
     if query.data == "weather":
-        await query.edit_message_text("🌤 Please type `/weather <city>` to get the weather.")
+        await context.bot.send_message(chat_id, "🌤 Please type `/weather <city>` to get the weather.")
     elif query.data == "datetime":
-        await query.edit_message_text("🕒 Please type `/datetime` to get the current time in Cambodia.")
-    elif query.data == "youtube_search":
-        await query.edit_message_text("🎬 Please type `/youtube <search term>` to search YouTube.")
-    elif query.data == "pnc_info":
-        await query.edit_message_text("🎬 Please type `/pnc_info <search term>` to get information about PNC.")
+        await context.bot.send_message(chat_id, "🕒 Please type `/datetime` to get the current time in Cambodia.")
+    elif query.data == "youtube":
+        await context.bot.send_message(chat_id, "🎥 Please type `/youtube <search term>` to search YouTube.")
     elif query.data == "web":
-        await query.edit_message_text("🎬 Please type `/web <search term>` to search the web.")
+        await context.bot.send_message(chat_id, "🔍 Please type `/web <search term>` to search the web.")
+    elif query.data == "pnc_info":
+        await context.bot.send_message(chat_id, "ℹ️ PNC Cambodia Info: type `/pnc_info` to see details.")
     else:
-        await query.edit_message_text("Unknown option selected.")
+        await context.bot.send_message(chat_id, "⚠️ Unknown option selected.")
+
 
 # ---------------- START COMMAND ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -374,24 +373,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     keyboard = [
-        [
-            InlineKeyboardButton("🌤 Weather", callback_data="weather"),
-            InlineKeyboardButton("🕒 Date & Time", callback_data="datetime"),
-        ],
-        [
-            InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube_search"),
-            InlineKeyboardButton("🔍 Web Search", callback_data="web"),
-        ],
-        [
-            InlineKeyboardButton("PNC Info", callback_data="pnc_info"),
-        ]
+        [InlineKeyboardButton("🌤️ Weather", callback_data="weather")],
+        [InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube")],
+        [InlineKeyboardButton("🕒 Date/Time", callback_data="datetime")],
+        [InlineKeyboardButton("🔍 Web Search", callback_data="web")],
+        [InlineKeyboardButton("ℹ️ PNC Cambodia Info", callback_data="pnc_info")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "👋 Hello! I'm your learning assistant bot.\n\n"
-        "Please choose an option below to get started:",
-        reply_markup=reply_markup,
+    # Use effective_message instead of update.message
+    await update.effective_message.reply_text(
+        "Please choose an option:",
+        reply_markup=reply_markup
     )
 
 
