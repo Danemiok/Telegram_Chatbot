@@ -1,20 +1,25 @@
-from pydoc import html
-from tracemalloc import start
-from email.mime import application
-from turtle import update
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CallbackContext
-import requests
-import json
 import os
-from datetime import datetime
-import pytz
-from googleapiclient.discovery import build
-from spellchecker import SpellChecker
-from telegram.constants import ChatAction
-from telegram.ext import ContextTypes
-import urllib.parse
+import json
 import html
+import urllib
+import urllib.parse
+import requests
+import pytz
+import asyncio
+import aiohttp
+from datetime import datetime
+from spellchecker import SpellChecker
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
+from telegram.constants import ChatAction
+
 # Bot Token
 TOKEN = '7631080660:AAFVpkGCLFhHkxF31Dvuwp0zdKjd4HV8FnY'
 
@@ -24,9 +29,7 @@ spell = SpellChecker()
 # File for storing user preferences
 PREFS_FILE = 'user_prefs.json'
 # API Keys
-WEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "7b27f746510dc8598cb744aa79f927e4")
-
-
+WEATHER_API_KEY = '7f59948b973042e8bfd22815241211'
 # ---------------- UTILITIES ----------------
 
 
@@ -53,22 +56,62 @@ def save_prefs(prefs):
     with open(PREFS_FILE, 'w') as file:
         json.dump(prefs, file)
 
-# /weather command: Fetch weather information for a city
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /weather command to get weather information for a city"""
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
     city = 'Phnom Penh'
     if context.args:
         city = ' '.join(context.args)
 
     url = f"https://api.weatherapi.com/v1/current.json?key={WEATHER_API_KEY}&q={city}"
-    response = requests.get(url)
-    data = response.json()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status != 200:
+                    await update.message.reply_text(
+                        "❌ Sorry, couldn't connect to weather service. Please try again later."
+                    )
+                    return
 
-    if 'error' not in data:
-        weather_data = f"Weather in {city}:\nTemperature: {data['current']['temp_c']}°C\nDescription: {data['current']['condition']['text']}"
-    else:
-        weather_data = "Sorry, I couldn't fetch the weather data."
+                data = await response.json()
+                
+                if 'error' in data:
+                    await update.message.reply_text(
+                        f"❌ Error: {data['error'].get('message', 'City not found')}"
+                    )
+                    return
 
-    await update.message.reply_text(weather_data)
+                city_name = html.escape(city)
+                weather = data['current']['condition']['text']
+                temp = data['current']['temp_c']
+                feels_like = data['current']['feelslike_c']
+                humidity = data['current']['humidity']
+
+                weather_data = (
+                    f"🌤️ Weather in <b>{city_name}</b>:\n"
+                    f"• Condition: {weather}\n"
+                    f"• Temperature: {temp}°C\n"
+                    f"• Feels Like: {feels_like}°C\n"
+                    f"• Humidity: {humidity}%"
+                )
+                
+                await update.message.reply_text(
+                    weather_data,
+                    parse_mode="HTML"
+                )
+
+    except asyncio.TimeoutError:
+        await update.message.reply_text(
+            "❌ Request timed out. Please try again later."
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ An unexpected error occurred: {str(e)}"
+        )
+
 
 # /datetime command: Get the current date and time in Cambodia
 async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -80,7 +123,7 @@ async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 
-async def set_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def pnc_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.message.from_user.id)
     custom_response = ' '.join(context.args)
     prefs = load_prefs()
@@ -93,6 +136,40 @@ async def set_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     await update.message.reply_text(f"Custom response set to: {custom_response}")
 
+# --- Web search command --- #
+async def web_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /web command: /web <search term>"""
+    if not context.args:
+        await update.message.reply_text("🔎 Usage: /web <search term>\nExample: /web web development")
+        return
+
+    query = " ".join(context.args)
+    url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    await asyncio.sleep(1)
+
+    await update.message.reply_text(
+        f"🔍 Google search for <b>{html.escape(query)}</b>:\n{url}",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+# ---------------- YOUTUBE SEARCH ----------------
+async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /youtube command."""
+    if not context.args:
+        await update.message.reply_text("🎬 Please provide a search keyword.\nExample: `/youtube web development`", parse_mode="Markdown")
+        return
+
+    query = " ".join(context.args)
+    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+    result = f"🎥 *YouTube Search Results for:* _{html.escape(query)}_\n\n🔗 [Click here to view results]({search_url})"
+
+    await update.message.reply_text(result, parse_mode="Markdown", disable_web_page_preview=True)
+
 # /help command: Show help message
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
@@ -100,11 +177,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/start - Greet the user\n"
         "/help - Show help\n"
         "/weather - Get weather data\n"
-        "/setresponse <response> - Set custom response\n"
         "/datetime - Get the current date and time in Cambodia\n"
         "/youtube <search term> - Search YouTube for videos\n"
+        "/pnc_info <search term> - Get information about PNC\n"
+        "/web <search term> - Get information about PNC\n"
     )
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text.strip().lower()
     chat_id = update.effective_chat.id
@@ -267,62 +344,70 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = no_results_found(user_text)
 
     await update.message.reply_text(response)
-# --- Inline Button Handlers --- #
-
+# ---------------- INLINE BUTTONS ----------------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
-    action = {
-        'weather': "Please type /weather <city> to get the weather.",
-        'youtube': "Please type /youtube <search term> to search YouTube.",
-        'datetime': "Please type /datetime to get the current date and time in Cambodia."
-    }.get(query.data, "Unknown option selected.") 
-    await query.edit_message_text(action)
+    chat_id = query.message.chat.id
 
-# --- Start Command --- #
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Greet the user with buttons and intro."""
-    chat_id = update.effective_chat.id  # get chat ID safely
-
-    # Show "typing..." action
+    await query.answer()  # Acknowledge the click
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-    # Define keyboard buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("🌤 Weather", callback_data='weather'),
-            InlineKeyboardButton("🕒 Date & Time", callback_data='datetime'),
-        ],
-        [
-            InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube_search"),
-        ]
-    ]
+    # Use send_message instead of edit_message_text to keep buttons
+    if query.data == "weather":
+        await context.bot.send_message(chat_id, "🌤 Please type `/weather <city>` to get the weather.")
+    elif query.data == "datetime":
+        await context.bot.send_message(chat_id, "🕒 Please type `/datetime` to get the current time in Cambodia.")
+    elif query.data == "youtube":
+        await context.bot.send_message(chat_id, "🎥 Please type `/youtube <search term>` to search YouTube.")
+    elif query.data == "web":
+        await context.bot.send_message(chat_id, "🔍 Please type `/web <search term>` to search the web.")
+    elif query.data == "pnc_info":
+        await context.bot.send_message(chat_id, "ℹ️ PNC Cambodia Info: type `/pnc_info` to see details.")
+    else:
+        await context.bot.send_message(chat_id, "⚠️ Unknown option selected.")
 
+
+# ---------------- START COMMAND ----------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+
+    keyboard = [
+        [InlineKeyboardButton("🌤️ Weather", callback_data="weather")],
+        [InlineKeyboardButton("🎥 YouTube Search", callback_data="youtube")],
+        [InlineKeyboardButton("🕒 Date/Time", callback_data="datetime")],
+        [InlineKeyboardButton("🔍 Web Search", callback_data="web")],
+        [InlineKeyboardButton("ℹ️ PNC Cambodia Info", callback_data="pnc_info")],
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Send greeting message
-    await update.message.reply_text(
-        "👋 Hello! I'm your learning assistant bot.\n\n"
-        "Please choose an option below to get started:",
+    # Use effective_message instead of update.message
+    await update.effective_message.reply_text(
+        "Please choose an option:",
         reply_markup=reply_markup
     )
 
 
 
 def main():
-
-    """Main entry point for the bot."""
     application = ApplicationBuilder().token(TOKEN).build()
 
-    # Add command handlers
+    # Commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("weather", weather))
     application.add_handler(CommandHandler("datetime", datetime_command))
-    application.add_handler(CommandHandler("setresponse", set_response))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("youtube", youtube_command))
+    application.add_handler(CommandHandler("pnc_info", pnc_info))
+    application.add_handler(CommandHandler("web", web_search))
+
+    # Inline buttons and messages
     application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🤖 Bot is running...")
     application.run_polling()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
